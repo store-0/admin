@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>إدارة المتجر</title>
+<style>
+:root{--bg:#f4f6fa;--c:#fff;--t:#1a1a2e;--m:#667;--ln:#d9dcec;--b:#1c2260;--ok:#1a8f4c;--no:#c33}
+@media(prefers-color-scheme:dark){:root{--bg:#12131c;--c:#1c1e2b;--t:#eee;--m:#99a;--ln:#33364a;--b:#7c8cff}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 Tajawal,Arial,sans-serif;background:var(--bg);color:var(--t);padding-bottom:72px}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--b);color:#fff;position:sticky;top:0;z-index:5}
+header button{background:none;border:1px solid #fff8;color:#fff}
+main{max-width:720px;margin:0 auto;padding:12px}
+.card{background:var(--c);border:1px solid var(--ln);border-radius:12px;padding:12px;margin-bottom:10px}
+h3{margin:.4em 0}
+input,select,textarea{width:100%;padding:10px;margin:4px 0 8px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);color:var(--t);font:inherit}
+input[type=checkbox]{width:auto;margin:0}
+button{padding:9px 14px;border-radius:8px;border:1px solid var(--ln);background:var(--c);color:var(--t);font:inherit;cursor:pointer}
+button.p{background:var(--b);color:#fff;border-color:var(--b)}
+button.d{color:var(--no)}
+nav{position:fixed;bottom:0;inset-inline:0;display:flex;background:var(--c);border-top:1px solid var(--ln)}
+nav button{flex:1;border:0;border-radius:0;padding:16px 4px}
+nav button.on{color:var(--b);font-weight:700;border-top:3px solid var(--b)}
+.r{display:flex;gap:8px;align-items:center}.r>*{margin:0}.r .g{flex:1;min-width:0}
+.th{width:48px;height:48px;object-fit:cover;border-radius:8px;background:var(--bg)}
+small{color:var(--m)}
+.o{display:grid;grid-template-columns:1fr 90px 40px;gap:6px}
+.pb{display:flex;gap:6px;align-items:center;margin-inline-start:16px;font-size:13px}.pb span{flex:1}.pb input{width:90px}
+#ed{position:fixed;inset:0;background:var(--bg);overflow:auto;z-index:10;padding:12px}
+#toast{position:fixed;bottom:84px;inset-inline:16px;background:#222;color:#fff;padding:12px;border-radius:10px;text-align:center;z-index:20}
+</style>
+</head>
+<body>
+<div id="login" style="max-width:380px;margin:12vh auto;padding:16px">
+  <div class="card"><h3>دخول المدير</h3>
+    <input id="em" type="email" placeholder="الإيميل" dir="ltr" autocomplete="username">
+    <input id="pw" type="password" placeholder="كلمة السر" dir="ltr" autocomplete="current-password">
+    <button class="p" style="width:100%" onclick="doLogin()">دخول</button></div>
+</div>
+<div id="app" hidden>
+  <header><b>إدارة المتجر</b><button onclick="logout()">خروج</button></header>
+  <main id="main"></main>
+  <nav><button data-t="set">الإعدادات</button><button data-t="prod">المنتجات</button><button data-t="cat">الفئات</button><button data-t="ord">الطلبات</button></nav>
+</div>
+<div id="ed" hidden></div>
+<div id="toast" hidden></div>
+<script>
+const U="https://gwenlqpuctchtultmxxg.supabase.co",K="sb_publishable_qIv3lEo1hLhrW5NX--HdqQ_WKfJOkBj";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let S=null,D={cats:[],subs:[],prods:[],set:{}},cur=null,tab="prod",q="";
+try{S=JSON.parse(localStorage.getItem("adm"))}catch(e){}
+const toast=m=>{const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,3000)};
+const run=async f=>{try{await f()}catch(e){toast(e.message||"حدث خطأ")}};
+
+async function auth(body,grant){
+  const r=await fetch(U+"/auth/v1/token?grant_type="+grant,{method:"POST",headers:{apikey:K,"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(!r.ok)throw new Error("فشل الدخول: تأكد من الإيميل وكلمة السر");
+  S={a:j.access_token,r:j.refresh_token};localStorage.setItem("adm",JSON.stringify(S));
+}
+async function api(p,m="GET",b,h={},retry=1){
+  const r=await fetch(U+p,{method:m,headers:{apikey:K,Authorization:"Bearer "+S.a,"Content-Type":"application/json",...h},body:b===undefined?undefined:JSON.stringify(b)});
+  if(r.status===401&&retry){try{await auth({refresh_token:S.r},"refresh_token")}catch(e){logout();throw e}return api(p,m,b,h,0)}
+  const t=await r.text();
+  if(!r.ok){let e;try{e=JSON.parse(t).message}catch(x){}throw new Error(e||"خطأ "+r.status)}
+  return t?JSON.parse(t):null;
+}
+async function wr(p,m,b,h){
+  const r=await api(p,m,b,{Prefer:"return=representation",...h});
+  if(Array.isArray(r)&&!r.length)throw new Error("لم يُحفظ: ليست لديك صلاحية (هل أضفت إيميلك إلى جدول admins؟)");
+  return r;
+}
+function doLogin(){run(async()=>{await auth({email:$("#em").value.trim(),password:$("#pw").value},"password");await start()})}
+function logout(){localStorage.removeItem("adm");S=null;location.reload()}
+async function load(){
+  const [c,s,p,st]=await Promise.all([api("/rest/v1/categories?select=*&order=sort"),api("/rest/v1/subcategories?select=*&order=sort"),api("/rest/v1/products?select=*&order=sort,created_at"),api("/rest/v1/settings?select=*")]);
+  D={cats:c,subs:s,prods:p,set:Object.fromEntries(st.map(x=>[x.key,x.value]))};
+}
+async function start(){await load();$("#login").hidden=true;$("#app").hidden=false;go(tab)}
+function go(t){tab=t;document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===t));({set:vSet,prod:vProd,cat:vCat,ord:vOrd})[t]()}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>run(async()=>{if(b.dataset.t!=="ord")await load();go(b.dataset.t)}));
+
+/* ---------- الإعدادات ---------- */
+function vSet(){$("#main").innerHTML=`<div class="card"><h3>سعر الصرف (ليرة لكل دولار)</h3><input id="rate" type="number" step="any" inputmode="decimal" value="${esc(D.set.syp_rate)}"><h3>رقم واتساب</h3><input id="wa" dir="ltr" value="${esc(D.set.whatsapp)}"><button class="p" onclick="saveSet()">حفظ</button></div>`}
+function saveSet(){run(async()=>{const r=+$("#rate").value;if(!(r>0))throw new Error("أدخل سعر صرف صحيحًا");
+  await wr("/rest/v1/settings","POST",[{key:"syp_rate",value:String(r)},{key:"whatsapp",value:$("#wa").value.trim()}],{Prefer:"resolution=merge-duplicates,return=representation"});toast("تم الحفظ، يظهر للزبائن فورًا")})}
+
+/* ---------- الصور ---------- */
+function pick(cb){const i=document.createElement("input");i.type="file";i.accept="image/*";
+  i.onchange=()=>run(async()=>{const f=i.files[0];if(!f)return;toast("جارٍ رفع الصورة...");
+    const bm=await createImageBitmap(f),k=Math.min(1,1000/Math.max(bm.width,bm.height)),c=document.createElement("canvas");
+    c.width=Math.round(bm.width*k);c.height=Math.round(bm.height*k);const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);x.drawImage(bm,0,0,c.width,c.height);
+    const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",.85)),n=Date.now()+".jpg";
+    const r=await fetch(U+"/storage/v1/object/product-images/"+n,{method:"POST",headers:{apikey:K,Authorization:"Bearer "+S.a,"Content-Type":"image/jpeg","x-upsert":"true"},body:blob});
+    if(!r.ok)throw new Error("فشل رفع الصورة");cb(U+"/storage/v1/object/public/product-images/"+n);toast("تم رفع الصورة")});
+  i.click()}
+
+/* ---------- المنتجات ---------- */
+function vProd(){$("#main").innerHTML=`<div class="r"><input id="sq" class="g" placeholder="بحث بالاسم..." value="${esc(q)}" oninput="q=this.value;rows()"><button class="p" onclick="openEd()">+ منتج</button></div><div id="rows"></div>`;rows()}
+function rows(){const l=D.prods.filter(p=>!q||(p.name+p.id).includes(q));
+  $("#rows").innerHTML=l.map(p=>`<div class="card r"><img class="th" src="${esc(p.image)}" onerror="this.style.visibility='hidden'"><div class="g"><b>${esc(p.name)}</b><br><small>${esc(p.id)}</small></div><label><input type="checkbox" ${p.available?"checked":""} onchange="tog('${esc(p.id)}',this)"> ظاهر</label><button onclick="openEd('${esc(p.id)}')">تعديل</button></div>`).join("")||"<small>لا نتائج</small>"}
+function tog(id,el){run(async()=>{try{await wr("/rest/v1/products?id=eq."+encodeURIComponent(id),"PATCH",{available:el.checked});D.prods.find(p=>p.id===id).available=el.checked}catch(e){el.checked=!el.checked;throw e}})}
+const nm=(d,k)=>(cur.variants.find(g=>g.id===d)?.options.find(x=>x.id===k)?.name||k).trim();
+function vr(){return cur.variants.map((g,gi)=>`<div class="card"><b>${esc(g.name)}</b>`+g.options.map((o,oi)=>`<div class="o"><input value="${esc(o.name)}" oninput="cur.variants[${gi}].options[${oi}].name=this.value"><input type="number" step="any" value="${o.price??0}" oninput="cur.variants[${gi}].options[${oi}].price=+this.value"><button class="d" onclick="delO(${gi},${oi})">✕</button></div>`+Object.entries(o.priceBy||{}).map(([d,m])=>Object.entries(m).map(([k,v])=>`<div class="pb"><span>سعر ${esc(o.name)} عند «${esc(nm(d,k))}»</span><input type="number" step="any" value="${v}" oninput="cur.variants[${gi}].options[${oi}].priceBy['${d}']['${k}']=+this.value"></div>`).join("")).join("")).join("")+`<button onclick="addO(${gi})">+ خيار</button></div>`).join("")}
+const rv=()=>$("#vr").innerHTML=vr();
+function delO(g,o){if(confirm("حذف هذا الخيار؟")){cur.variants[g].options.splice(o,1);rv()}}
+function addO(g){cur.variants[g].options.push({id:"o"+Date.now(),name:"",price:0});rv()}
+function subOpts(){const l=D.subs.filter(s=>s.category_id===cur.category);if(cur.sub&&!l.some(s=>s.id===cur.sub))l.push({id:cur.sub,name:cur.sub+" (غير موجود)"});return l.map(s=>`<option value="${esc(s.id)}" ${s.id===cur.sub?"selected":""}>${esc(s.name)}</option>`).join("")}
+function openEd(id){
+  cur=id?structuredClone(D.prods.find(p=>p.id===id)):{isNew:1,name:"",desc:"",category:D.cats[0]?.id||"",sub:"",badge:"",image:"",variants:[{id:"packaging",name:"الكمية",options:[{id:"piece",name:"قطعة",price:0}]}]};
+  if(cur.isNew)cur.sub=D.subs.find(s=>s.category_id===cur.category)?.id||"";
+  $("#ed").hidden=false;$("#ed").innerHTML=`<div class="r"><h3 class="g">${cur.isNew?"منتج جديد":"تعديل المنتج"}</h3><button onclick="$('#ed').hidden=true">إغلاق</button></div>
+<div class="card"><label>الاسم</label><input id="f_name" value="${esc(cur.name)}"><label>الوصف</label><textarea id="f_desc" rows="3">${esc(cur.desc)}</textarea>
+<label>الفئة</label><select id="f_cat" onchange="cur.category=this.value;cur.sub='';cur.sub=D.subs.find(s=>s.category_id===cur.category)?.id||'';$('#f_sub').innerHTML=subOpts()">${D.cats.map(c=>`<option value="${esc(c.id)}" ${c.id===cur.category?"selected":""}>${esc(c.name)}</option>`).join("")}</select>
+<label>الفرع</label><select id="f_sub" onchange="cur.sub=this.value">${subOpts()}</select>
+<label>شارة (مثل: جديد، عرض)</label><input id="f_badge" value="${esc(cur.badge)}">
+<label>الصورة</label><div class="r"><img class="th" id="f_th" src="${esc(cur.image)}"><input id="f_img" class="g" dir="ltr" value="${esc(cur.image)}" oninput="$('#f_th').src=this.value"><button onclick="pick(u=>{$('#f_img').value=u;$('#f_th').src=u})">رفع</button></div></div>
+<h3>الخيارات والأسعار (بالدولار)</h3><div id="vr">${vr()}</div>
+<div class="r"><button class="p g" onclick="saveP()">حفظ</button>${cur.isNew?"":`<button class="d" onclick="delP()">حذف المنتج</button>`}</div>`;
+}
+function saveP(){run(async()=>{const name=$("#f_name").value.trim();if(!name)throw new Error("أدخل اسم المنتج");
+  const f={name,desc:$("#f_desc").value,category:cur.category,sub:cur.sub,badge:$("#f_badge").value.trim(),image:$("#f_img").value.trim(),variants:cur.variants};
+  if(cur.isNew)await wr("/rest/v1/products","POST",{...f,id:"p"+Date.now().toString(36),sort:Math.max(0,...D.prods.map(p=>p.sort))+1});
+  else await wr("/rest/v1/products?id=eq."+encodeURIComponent(cur.id),"PATCH",f);
+  await load();$("#ed").hidden=true;vProd();toast("تم الحفظ")})}
+function delP(){if(confirm("حذف المنتج نهائيًا؟ (للإخفاء فقط أزل علامة «ظاهر»)"))run(async()=>{await wr("/rest/v1/products?id=eq."+encodeURIComponent(cur.id),"DELETE");await load();$("#ed").hidden=true;vProd()})}
+
+/* ---------- الفئات ---------- */
+const E=encodeURIComponent;
+function vCat(){$("#main").innerHTML=`<button class="p" onclick="addC()">+ فئة جديدة</button><br><br>`+D.cats.map(c=>`<div class="card"><div class="r"><img class="th" src="${esc(c.image)}" onerror="this.style.visibility='hidden'"><b class="g">${esc(c.name)}</b></div>
+<div class="r"><button onclick="ren('categories','id=eq.${E(c.id)}','${esc(c.name)}')">تسمية</button><button onclick="img('categories','id=eq.${E(c.id)}')">صورة</button><button class="d" onclick="del('categories','id=eq.${E(c.id)}','سيُحذف أيضًا كل فروع هذه الفئة ومنتجاتها!')">حذف</button></div><hr>`
+  +D.subs.filter(s=>s.category_id===c.id).map(s=>{const w=`category_id=eq.${E(c.id)}&id=eq.${E(s.id)}`;return `<div class="r" style="margin:6px 0"><img class="th" src="${esc(s.image)}" onerror="this.style.visibility='hidden'"><span class="g">${esc(s.name)}</span><button onclick="ren('subcategories','${w}','${esc(s.name)}')">تسمية</button><button onclick="img('subcategories','${w}')">صورة</button><button class="d" onclick="del('subcategories','${w}','')">حذف</button></div>`}).join("")
+  +`<button onclick="addS('${esc(c.id)}')">+ فرع</button></div>`).join("")}
+const rel=()=>run(async()=>{await load();vCat()});
+function ren(t,w,old){const n=prompt("الاسم الجديد",old);if(n&&n.trim())run(async()=>{await wr(`/rest/v1/${t}?${w}`,"PATCH",{name:n.trim()});await load();vCat()})}
+function img(t,w){pick(u=>run(async()=>{await wr(`/rest/v1/${t}?${w}`,"PATCH",{image:u});await load();vCat()}))}
+function del(t,w,msg){if(confirm("حذف نهائي؟ "+msg))run(async()=>{await wr(`/rest/v1/${t}?${w}`,"DELETE");await load();vCat()})}
+function slug(){const s=prompt("معرّف بالإنجليزية بدون مسافات (مثل toys)");if(!s)return null;if(!/^[a-z0-9_-]+$/i.test(s.trim())){toast("المعرّف: أحرف إنجليزية وأرقام وشرطة فقط");return null}return s.trim()}
+function addC(){const n=prompt("اسم الفئة");if(!n)return;const id=slug();if(id)run(async()=>{await wr("/rest/v1/categories","POST",{id,name:n.trim(),sort:Math.max(0,...D.cats.map(c=>c.sort))+1});await load();vCat()})}
+function addS(c){const n=prompt("اسم الفرع");if(!n)return;const id=slug();if(id)run(async()=>{await wr("/rest/v1/subcategories","POST",{category_id:c,id,name:n.trim(),sort:Math.max(0,...D.subs.map(s=>s.sort))+1});await load();vCat()})}
+
+/* ---------- الطلبات ---------- */
+const ST={new:"جديد",preparing:"قيد التجهيز",delivered:"مُسلَّم",cancelled:"ملغي"};
+function vOrd(){run(async()=>{const o=await api("/rest/v1/orders?select=*&order=created_at.desc&limit=50");
+  $("#main").innerHTML=o.map(x=>`<div class="card"><div class="r"><b class="g">${esc(x.cust_name)}</b><small>${new Date(x.created_at).toLocaleString("ar")}</small></div>
+<a href="tel:${esc(x.cust_phone)}" dir="ltr">${esc(x.cust_phone)}</a><br>${esc(x.cust_address)}${x.notes?`<br><small>ملاحظات: ${esc(x.notes)}</small>`:""}<hr>
+${(x.items||[]).map(i=>`${esc(i.qty)}× ${esc(i.name)} (${esc(i.variant)}) — $${esc(i.unit_usd)}`).join("<br>")}<hr>
+<b>الإجمالي: $${esc(x.total_usd)}${x.syp_rate>0?` ≈ ${Math.round(x.total_usd*x.syp_rate).toLocaleString("en-US")} ل.س`:""}</b>${x.coupon?` <small>(كوبون ${esc(x.coupon)})</small>`:""}
+<select onchange="st('${x.id}',this.value)">${Object.entries(ST).map(([k,v])=>`<option value="${k}" ${k===x.status?"selected":""}>${v}</option>`).join("")}</select></div>`).join("")||"<small>لا طلبات بعد</small>"})}
+function st(id,v){run(async()=>{await wr("/rest/v1/orders?id=eq."+id,"PATCH",{status:v});toast("تم تحديث الحالة")})}
+
+if(S)run(async()=>{try{await start()}catch(e){localStorage.removeItem("adm");S=null;throw e}});
+</script>
+</body>
+</html>
